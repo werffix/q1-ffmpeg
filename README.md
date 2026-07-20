@@ -68,7 +68,9 @@ sudo nano /etc/caddy/Caddyfile
 video.yourdomain.com {
     reverse_proxy localhost:8000
 
-    client_max_body_size 2GB
+    request_body {
+        max_size 2GB
+    }
 
     header {
         X-Frame-Options DENY
