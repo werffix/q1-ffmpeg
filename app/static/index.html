@@ -325,17 +325,33 @@ async function dlStart(stripMeta) {
 
   try{
     const r=await fetch(endpoint,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({url})});
-    if(r.ok){
-      const d=await r.json();
-      $('dlStatus').textContent=`Done: ${d.filename} (${fmtSize(d.size)})`;
-      $('dlStatus').className='status ok';
-      loadLogs();
+    if(stripMeta){
+      if(r.ok){
+        const blob=await r.blob();
+        const a=document.createElement('a');a.href=URL.createObjectURL(blob);
+        a.download=r.headers.get('content-disposition')?.match(/filename="?(.+?)"?$/)?.[1]||'video.mp4';
+        document.body.appendChild(a);a.click();document.body.removeChild(a);URL.revokeObjectURL(a.href);
+        $('dlStatus').textContent='Done & downloading to your device';
+        $('dlStatus').className='status ok';
+      } else {
+        const d=await r.json();
+        $('dlStatus').textContent=d.detail||'Error';
+        $('dlStatus').className='status err';
+      }
     } else {
-      const d=await r.json();
-      $('dlStatus').textContent=d.detail||'Error';
-      $('dlStatus').className='status err';
-      loadLogs();
+      if(r.ok){
+        const d=await r.json();
+        const a=document.createElement('a');a.href='/api/dl/file/'+encodeURIComponent(d.filename);a.download='';
+        document.body.appendChild(a);a.click();document.body.removeChild(a);
+        $('dlStatus').textContent=`Done: ${d.filename} (${fmtSize(d.size)})`;
+        $('dlStatus').className='status ok';
+      } else {
+        const d=await r.json();
+        $('dlStatus').textContent=d.detail||'Error';
+        $('dlStatus').className='status err';
+      }
     }
+    loadLogs();
   }catch{
     $('dlStatus').textContent='Network error';
     $('dlStatus').className='status err';
