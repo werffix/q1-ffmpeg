@@ -3,19 +3,44 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>FFmpeg Metadata Tool</title>
+<title>FFmpeg Tool</title>
 <style>
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 :root {
   --bg0: #0e0e0e; --bg1: #161616; --bg2: #1e1e1e; --bg3: #262626;
   --border: #2e2e2e; --bdr2: #3a3a3a;
   --t1: #f0f0f0; --t2: #aaaaaa; --t3: #707070; --t4: #505050;
+  --sidebar-w: 220px;
 }
-body { font-family: -apple-system, 'Segoe UI', system-ui, sans-serif; background: var(--bg0); color: var(--t1); min-height: 100vh; display: flex; flex-direction: column; }
-header { background: var(--bg1); border-bottom: 1px solid var(--border); padding: 14px 24px; display: flex; align-items: center; gap: 12px; }
-header h1 { font-size: 17px; font-weight: 600; }
-header span { font-size: 12px; color: var(--t3); }
-.wrap { max-width: 880px; width: 100%; margin: 0 auto; padding: 20px 24px; flex: 1; }
+body { font-family: -apple-system, 'Segoe UI', system-ui, sans-serif; background: var(--bg0); color: var(--t1); height: 100vh; display: flex; overflow: hidden; }
+
+/* Sidebar */
+.sidebar {
+  width: var(--sidebar-w); min-width: var(--sidebar-w); height: 100vh;
+  background: var(--bg1); border-right: 1px solid var(--border);
+  display: flex; flex-direction: column; padding: 0;
+}
+.sidebar .logo {
+  padding: 18px 20px 14px; border-bottom: 1px solid var(--border);
+  font-size: 15px; font-weight: 700; color: var(--t1);
+}
+.sidebar .logo span { font-size: 10px; font-weight: 400; color: var(--t4); display: block; margin-top: 2px; }
+.sidebar nav { flex: 1; padding: 10px 8px; }
+.sidebar nav a {
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 14px; border-radius: 6px; margin-bottom: 2px;
+  font-size: 13px; color: var(--t2); text-decoration: none; transition: .12s; cursor: pointer;
+}
+.sidebar nav a:hover { background: var(--bg2); color: var(--t1); }
+.sidebar nav a.active { background: var(--bg3); color: var(--t1); font-weight: 600; }
+.sidebar nav a .icon { font-size: 16px; width: 20px; text-align: center; }
+.sidebar .foot { padding: 14px 20px; border-top: 1px solid var(--border); font-size: 11px; color: var(--t4); }
+
+/* Main */
+.main { flex: 1; overflow-y: auto; display: flex; flex-direction: column; }
+.page { display: none; flex: 1; padding: 24px 28px; max-width: 900px; width: 100%; margin: 0 auto; }
+.page.active { display: block; }
+
 .card { background: var(--bg1); border: 1px solid var(--border); border-radius: 8px; padding: 22px; margin-bottom: 18px; }
 .card h2 { font-size: 12px; font-weight: 700; color: var(--t2); text-transform: uppercase; letter-spacing: 1.5px; margin-bottom: 14px; }
 .drop-zone { border: 2px dashed var(--border); border-radius: 8px; padding: 44px 20px; text-align: center; cursor: pointer; transition: .15s; }
@@ -51,6 +76,23 @@ input[type="file"] { display: none; }
 .add-row { display: flex; gap: 6px; margin-top: 10px; }
 .add-row input { font-family: inherit; font-size: 12px; padding: 7px 9px; background: var(--bg0); border: 1px solid var(--border); border-radius: 4px; color: var(--t1); outline: none; }
 .add-row input:focus { border-color: var(--t4); }
+
+/* Downloader */
+.url-input {
+  width: 100%; padding: 12px 14px; font-family: inherit; font-size: 14px;
+  background: var(--bg0); border: 1px solid var(--border); border-radius: 6px;
+  color: var(--t1); outline: none; transition: .15s;
+}
+.url-input:focus { border-color: var(--t4); }
+.url-input::placeholder { color: var(--t4); }
+
+.dl-spinner { display: none; margin-top: 14px; }
+.dl-spinner.on { display: block; }
+.dl-spinner .bar { height: 3px; background: var(--bg3); border-radius: 2px; overflow: hidden; }
+.dl-spinner .bar .fill { height: 100%; background: var(--t2); animation: dl-pulse 1.5s ease-in-out infinite; }
+@keyframes dl-pulse { 0%{width:0;margin-left:0} 50%{width:60%;margin-left:20%} 100%{width:0;margin-left:100%} }
+
+/* Logs */
 .logs { max-height: 350px; overflow-y: auto; font-size: 11px; line-height: 1.9; font-family: 'SF Mono', 'Cascadia Code', monospace; }
 .logs::-webkit-scrollbar { width: 5px; }
 .logs::-webkit-scrollbar-track { background: var(--bg0); }
@@ -64,295 +106,258 @@ input[type="file"] { display: none; }
 .le .m { color: var(--t1); }
 .toolbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
 .empty { text-align: center; padding: 28px; color: var(--t4); font-size: 12px; }
-footer { text-align: center; padding: 14px; color: var(--t4); font-size: 11px; border-top: 1px solid var(--border); }
 </style>
 </head>
 <body>
-<header>
-  <h1>FFmpeg Metadata Tool</h1>
-  <span>metadata editor</span>
-</header>
-<div class="wrap">
 
-  <div class="card">
-    <h2>Upload</h2>
-    <div class="drop-zone" id="dz"><span class="big">+</span><p>Drop video or click</p><p class="hint">mp4, avi, mov, mkv, webm, flv, wmv, m4v, ts, mpg</p></div>
-    <input type="file" id="fi" accept="video/*">
-    <div class="pbar" id="pb"><div class="fill" id="pf"></div></div>
-    <div class="status" id="st"></div>
-    <div class="btn-row" id="br" style="display:none">
-      <button class="btn btn-w" id="stripBtn">Strip metadata &amp; download</button>
-      <button class="btn btn-p" id="dlBtn">Download</button>
-      <button class="btn" id="rstBtn">Reset</button>
-    </div>
-  </div>
-
-  <div class="card video-wrap" id="pc">
-    <h2>Player</h2>
-    <video id="vp" controls></video>
-  </div>
-
-  <div class="card" id="mc" style="display:none">
-    <h2>Metadata</h2>
-
-    <div class="section-label">General</div>
-    <div class="meta-grid" id="mg"></div>
-
-    <div class="section-label">Social / Open Graph</div>
-    <div class="meta-grid" id="sg"></div>
-
-    <div class="add-row">
-      <input type="text" id="nk" placeholder="key" style="flex:0 0 200px">
-      <input type="text" id="nv" placeholder="value" style="flex:1">
-      <button class="btn" id="addBtn">+</button>
-    </div>
-
-    <div class="btn-row">
-      <button class="btn btn-p" id="saveBtn">Save metadata</button>
-      <button class="btn" id="randBtn">Randomize social metadata</button>
-    </div>
-    <div class="status" id="ms"></div>
-  </div>
-
-  <div class="card">
-    <h2>Logs</h2>
-    <div class="toolbar"><span id="lc" style="font-size:11px;color:var(--t4)">0</span><button class="btn" id="rlb">Refresh</button></div>
-    <div class="logs" id="lo"><div class="empty">No logs</div></div>
-  </div>
+<div class="sidebar">
+  <div class="logo">FFmpeg Tool<span>metadata & downloader</span></div>
+  <nav>
+    <a class="active" data-page="tool" onclick="go('tool')"><span class="icon">F</span> FFmpeg Tool</a>
+    <a data-page="dl" onclick="go('dl')"><span class="icon">D</span> Downloader</a>
+    <a data-page="logs" onclick="go('logs')"><span class="icon">L</span> Logs</a>
+  </nav>
+  <div class="foot">FFmpeg + yt-dlp</div>
 </div>
-<footer>FFmpeg Metadata Tool</footer>
+
+<div class="main">
+
+  <!-- FFmpeg Tool -->
+  <div class="page active" id="p-tool">
+    <div class="card">
+      <h2>Upload</h2>
+      <div class="drop-zone" id="dz"><span class="big">+</span><p>Drop video or click</p><p class="hint">mp4, avi, mov, mkv, webm, flv, wmv, m4v, ts, mpg</p></div>
+      <input type="file" id="fi" accept="video/*">
+      <div class="pbar" id="pb"><div class="fill" id="pf"></div></div>
+      <div class="status" id="st"></div>
+      <div class="btn-row" id="br" style="display:none">
+        <button class="btn btn-w" id="stripBtn">Strip &amp; download</button>
+        <button class="btn btn-p" id="dlBtn">Download</button>
+        <button class="btn" id="rstBtn">Reset</button>
+      </div>
+    </div>
+
+    <div class="card video-wrap" id="pc">
+      <h2>Player</h2>
+      <video id="vp" controls></video>
+    </div>
+
+    <div class="card" id="mc" style="display:none">
+      <h2>Metadata</h2>
+      <div class="section-label">General</div>
+      <div class="meta-grid" id="mg"></div>
+      <div class="section-label">Social / Open Graph</div>
+      <div class="meta-grid" id="sg"></div>
+      <div class="add-row">
+        <input type="text" id="nk" placeholder="key" style="flex:0 0 200px">
+        <input type="text" id="nv" placeholder="value" style="flex:1">
+        <button class="btn" id="addBtn">+</button>
+      </div>
+      <div class="btn-row">
+        <button class="btn btn-p" id="saveBtn">Save metadata</button>
+        <button class="btn" id="randBtn">Randomize social</button>
+      </div>
+      <div class="status" id="ms"></div>
+    </div>
+  </div>
+
+  <!-- Downloader -->
+  <div class="page" id="p-dl">
+    <div class="card">
+      <h2>Video Downloader</h2>
+      <p style="font-size:12px;color:var(--t3);margin-bottom:14px">YouTube, TikTok, Instagram, Twitter, and 1000+ other sites via yt-dlp</p>
+      <input type="text" class="url-input" id="urlInput" placeholder="Paste video URL here...">
+      <div class="btn-row">
+        <button class="btn btn-p" id="dlNormal">Download</button>
+        <button class="btn btn-w" id="dlNoMeta">Download without metadata</button>
+      </div>
+      <div class="dl-spinner" id="dlSpin"><div class="bar"><div class="fill"></div></div></div>
+      <div class="status" id="dlStatus"></div>
+    </div>
+  </div>
+
+  <!-- Logs -->
+  <div class="page" id="p-logs">
+    <div class="card">
+      <h2>Logs</h2>
+      <div class="toolbar"><span id="lc" style="font-size:11px;color:var(--t4)">0</span><button class="btn" id="rlb">Refresh</button></div>
+      <div class="logs" id="lo"><div class="empty">No logs</div></div>
+    </div>
+  </div>
+
+</div>
 
 <script>
+// --- Navigation ---
+function go(page) {
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.sidebar nav a').forEach(a => a.classList.remove('active'));
+  document.getElementById('p-' + page).classList.add('active');
+  document.querySelector(`.sidebar nav a[data-page="${page}"]`).classList.add('active');
+  if (page === 'logs') loadLogs();
+}
+
+// --- Helpers ---
 const LABELS = {
-  title: 'Title', artist: 'Artist', album: 'Album', album_artist: 'Album Artist',
-  composer: 'Composer', genre: 'Genre', date: 'Date', year: 'Year',
-  comment: 'Comment', description: 'Description', synopsis: 'Synopsis',
-  encoder: 'Encoder', encoder_lib: 'Encoder library', encoder_settings: 'Encoder settings',
-  handler_name: 'Handler', handler_vendor: 'Handler vendor',
-  creation_time: 'Creation time', modify_time: 'Modification time',
-  filename: 'Filename', pathname: 'Path',
-  track: 'Track number', disc: 'Disc number', compilation: 'Compilation',
-  lyrics: 'Lyrics', mood: 'Mood', grouping: 'Grouping',
-  show: 'Show', episode_id: 'Episode ID', network: 'Network',
-  media_type: 'Media type', TV_episode: 'TV episode', TV_episode_sort: 'Episode sort',
-  TV_network: 'TV network', TV_show_name: 'TV show',
-  video_title: 'Video title', video_description: 'Video description',
-  video_section: 'Video section', video_summary: 'Video summary',
-  video_show: 'Video show', video_episode: 'Video episode',
-  audio_title: 'Audio title', audio_description: 'Audio description',
-  audio_artist: 'Audio artist', audio_album: 'Audio album',
-  audio_track: 'Audio track', audio_composer: 'Audio composer',
-  copyright: 'Copyright', license: 'License', encoded_by: 'Encoded by',
-  isrc: 'ISRC (international standard recording code)',
-  tempo: 'BPM / Tempo', time_signature: 'Time signature',
-  location: 'Location', location_date: 'Location date',
-  location_title: 'Location title', location_hierarchy: 'Location hierarchy',
-  encoder: 'Encoder version', minor_version: 'Minor version', compatible_brands: 'Compatible brands',
+  title:'Title',artist:'Artist',album:'Album',album_artist:'Album Artist',composer:'Composer',
+  genre:'Genre',date:'Date',year:'Year',comment:'Comment',description:'Description',synopsis:'Synopsis',
+  encoder:'Encoder',encoder_lib:'Encoder library',encoder_settings:'Encoder settings',
+  handler_name:'Handler',handler_vendor:'Handler vendor',
+  creation_time:'Creation time',modify_time:'Modification time',
+  filename:'Filename',pathname:'Path',track:'Track number',disc:'Disc number',
+  compilation:'Compilation',lyrics:'Lyrics',mood:'Mood',grouping:'Grouping',
+  show:'Show',episode_id:'Episode ID',network:'Network',
+  media_type:'Media type',TV_episode:'TV episode',TV_episode_sort:'Episode sort',
+  TV_network:'TV network',TV_show_name:'TV show',
+  copyright:'Copyright',license:'License',encoded_by:'Encoded by',
+  isrc:'ISRC',tempo:'BPM',time_signature:'Time signature',
+  location:'Location',compatible_brands:'Compatible brands',
 };
+const SOCIAL_KEYS = ['og:title','og:description','og:type','og:site_name','og:video','og:video:width','og:video:height','og:video:type','og:image','og:url','twitter:card','twitter:site','twitter:creator','twitter:title','twitter:description','twitter:image','description','title'];
+const SOCIAL_TITLES = ['Amazing video','Check this out','Must watch','Incredible footage','You won\'t believe this','Had to share','Look at this','Too good not to share','Watch till the end','Epic content'];
+const SOCIAL_DESCS = ['An incredible video captured at the perfect moment.','This footage is absolutely stunning.','Rare video that everyone is talking about.','One of the most impressive videos.','Captured something truly unique.','This will blow your mind.','Raw footage that speaks for itself.','No words needed, just watch.'];
+const SOCIAL_TYPES = ['video.other','video.movie','video.episode'];
+const TWITTER_CARDS = ['player','summary_large_image','video'];
+const NAMES = ['user','creator','author','editor','uploader'];
+function rnd(a) { return a[Math.floor(Math.random()*a.length)]; }
+function rndNum(n) { return ''+(Math.floor(Math.random()*n)+1); }
+function rndDim() { return ''+(Math.floor(Math.random()*3840)+640); }
+function rndUrl() { return 'https://example.com/video/'+Math.random().toString(36).slice(2,10); }
+function fmtSize(b) { return b<1024?b+' B':b<1048576?(b/1024).toFixed(1)+' KB':(b/1048576).toFixed(2)+' MB'; }
+function esc(s) { const d=document.createElement('div'); d.textContent=s; return d.innerHTML; }
 
-const SOCIAL_KEYS = [
-  'og:title', 'og:description', 'og:type', 'og:site_name',
-  'og:video', 'og:video:width', 'og:video:height', 'og:video:type',
-  'og:image', 'og:url',
-  'twitter:card', 'twitter:site', 'twitter:creator', 'twitter:title',
-  'twitter:description', 'twitter:image',
-  'description', 'title',
-];
-
-const SOCIAL_TITLES = [
-  'Amazing video you need to see', 'Check this out', 'Must watch',
-  'Incredible footage', 'You won\'t believe this', 'This is wild',
-  'Had to share this', 'Found something crazy', 'Look at this',
-  'Too good not to share', 'Watch till the end', 'Epic content',
-];
-const SOCIAL_DESCS = [
-  'An incredible video captured at the perfect moment.',
-  'This footage is absolutely stunning, must see.',
-  'Rare video that everyone is talking about.',
-  'One of the most impressive videos I\'ve seen.',
-  'Captured something truly unique here.',
-  'This will blow your mind, seriously.',
-  'Raw footage that speaks for itself.',
-  'No words needed, just watch.',
-];
-const SOCIAL_TYPES = ['video.other', 'video.movie', 'video.episode'];
-const TWITTER_CARDS = ['player', 'summary_large_image', 'video'];
-const NAMES = ['user', 'creator', 'author', 'editor', 'uploader'];
-
-let fid = null, tags = {};
-
+// --- FFmpeg Tool ---
 const $ = id => document.getElementById(id);
-const dz = $('dz'), fi = $('fi'), pb = $('pb'), pf = $('pf'), st = $('st');
-const br = $('br'), pc = $('pc'), vp = $('vp'), mc = $('mc');
-const mg = $('mg'), sg = $('sg'), ms = $('ms');
-const lo = $('lo'), lc = $('lc');
+const dz=$('dz'),fi=$('fi'),pb=$('pb'),pf=$('pf'),st=$('st'),br=$('br'),pc=$('pc'),vp=$('vp'),mc=$('mc'),mg=$('mg'),sg=$('sg'),ms=$('ms');
 
-function rnd(a) { return a[Math.floor(Math.random() * a.length)]; }
-function rndNum(n) { return '' + (Math.floor(Math.random() * n) + 1); }
-function rndDim() { return '' + (Math.floor(Math.random() * 3840) + 640); }
-function rndEmail() { return 'user' + Math.floor(Math.random() * 9999) + '@example.com'; }
-function rndUrl() { return 'https://example.com/video/' + Math.random().toString(36).slice(2, 10); }
-function rndHex(n) { let s=''; for(let i=0;i<n;i++) s+='0123456789abcdef'[Math.floor(Math.random()*16)]; return s; }
-function fmtSize(b) { return b < 1024 ? b+' B' : b < 1048576 ? (b/1024).toFixed(1)+' KB' : (b/1048576).toFixed(2)+' MB'; }
-function esc(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+let fid=null, tags={};
 
-// Upload
-dz.addEventListener('click', () => fi.click());
-dz.addEventListener('dragover', e => { e.preventDefault(); dz.classList.add('on'); });
-dz.addEventListener('dragleave', () => dz.classList.remove('on'));
-dz.addEventListener('drop', e => { e.preventDefault(); dz.classList.remove('on'); if (e.dataTransfer.files.length) upload(e.dataTransfer.files[0]); });
-fi.addEventListener('change', () => { if (fi.files.length) upload(fi.files[0]); });
+dz.addEventListener('click',()=>fi.click());
+dz.addEventListener('dragover',e=>{e.preventDefault();dz.classList.add('on');});
+dz.addEventListener('dragleave',()=>dz.classList.remove('on'));
+dz.addEventListener('drop',e=>{e.preventDefault();dz.classList.remove('on');if(e.dataTransfer.files.length)upload(e.dataTransfer.files[0]);});
+fi.addEventListener('change',()=>{if(fi.files.length)upload(fi.files[0]);});
 
 async function upload(file) {
-  st.textContent = 'Uploading...'; st.className = 'status';
-  pb.classList.add('on'); pf.style.width = '0%';
-  br.style.display = 'none'; mc.style.display = 'none'; pc.style.display = 'none';
-
-  const fd = new FormData(); fd.append('file', file);
-  const xhr = new XMLHttpRequest(); xhr.open('POST', '/api/upload');
-  xhr.upload.onprogress = e => { if (e.lengthComputable) pf.style.width = Math.round(e.loaded / e.total * 50) + '%'; };
-  st.textContent = 'Processing...';
-
-  xhr.onload = () => {
-    if (xhr.status === 200) {
-      const d = JSON.parse(xhr.responseText); fid = d.file_id;
-      pf.style.width = '100%'; st.textContent = `Done: ${d.original_name}`; st.className = 'status ok';
-      br.style.display = 'flex';
-      setTimeout(() => pb.classList.remove('on'), 400);
+  st.textContent='Uploading...'; st.className='status';
+  pb.classList.add('on'); pf.style.width='0%';
+  br.style.display='none'; mc.style.display='none'; pc.style.display='none';
+  const fd=new FormData(); fd.append('file',file);
+  const xhr=new XMLHttpRequest(); xhr.open('POST','/api/upload');
+  xhr.upload.onprogress=e=>{if(e.lengthComputable)pf.style.width=Math.round(e.loaded/e.total*50)+'%';};
+  st.textContent='Processing...';
+  xhr.onload=()=>{
+    if(xhr.status===200){
+      const d=JSON.parse(xhr.responseText); fid=d.file_id;
+      pf.style.width='100%'; st.textContent='Done: '+d.original_name; st.className='status ok';
+      br.style.display='flex'; setTimeout(()=>pb.classList.remove('on'),400);
       showPlayer(); loadMeta(); loadLogs();
     } else {
-      let m = 'Error'; try { m = JSON.parse(xhr.responseText).detail || m; } catch {}
-      st.textContent = m; st.className = 'status err'; pb.classList.remove('on'); loadLogs();
+      let m='Error'; try{m=JSON.parse(xhr.responseText).detail||m;}catch{}
+      st.textContent=m; st.className='status err'; pb.classList.remove('on'); loadLogs();
     }
   };
-  xhr.onerror = () => { st.textContent = 'Network error'; st.className = 'status err'; pb.classList.remove('on'); };
+  xhr.onerror=()=>{st.textContent='Network error';st.className='status err';pb.classList.remove('on');};
   xhr.send(fd);
 }
 
-function showPlayer() { vp.src = '/api/stream/' + fid; pc.style.display = 'block'; }
+function showPlayer() { vp.src='/api/stream/'+fid; pc.style.display='block'; }
 
-// Metadata
 async function loadMeta() {
-  if (!fid) return;
-  try {
-    const r = await fetch('/api/metadata/' + fid);
-    const d = await r.json(); tags = d.tags || {}; renderMeta(); mc.style.display = 'block';
-  } catch { mc.style.display = 'none'; }
+  if(!fid)return;
+  try{const r=await fetch('/api/metadata/'+fid);const d=await r.json();tags=d.tags||{};renderMeta();mc.style.display='block';}catch{mc.style.display='none';}
 }
 
 function renderMeta() {
-  const social = {}; const general = {};
-  for (const [k, v] of Object.entries(tags)) {
-    if (SOCIAL_KEYS.includes(k) || k.startsWith('og:') || k.startsWith('twitter:')) social[k] = v;
-    else general[k] = v;
+  const social={},general={};
+  for(const[k,v]of Object.entries(tags)){
+    if(SOCIAL_KEYS.includes(k)||k.startsWith('og:')||k.startsWith('twitter:'))social[k]=v;else general[k]=v;
   }
-
-  const gk = Object.keys(general);
-  if (gk.length) {
-    mg.innerHTML = gk.map(k => {
-      const lbl = LABELS[k] || k;
-      return `<div class="meta-row"><span class="lbl">${esc(lbl)}</span><input class="vi" data-key="${esc(k)}" value="${esc(tags[k] || '')}"><button class="del" data-k="${esc(k)}">&times;</button></div>`;
-    }).join('');
-  } else {
-    mg.innerHTML = '<div style="color:var(--t4);font-size:12px;padding:4px 0">No general metadata</div>';
-  }
-
-  const sk = Object.keys(social);
-  if (sk.length) {
-    sg.innerHTML = sk.map(k => {
-      const lbl = LABELS[k] || k;
-      return `<div class="meta-row"><span class="lbl">${esc(lbl)}</span><input class="vi" data-key="${esc(k)}" value="${esc(tags[k] || '')}"><button class="del" data-k="${esc(k)}">&times;</button></div>`;
-    }).join('');
-  } else {
-    sg.innerHTML = '<div style="color:var(--t4);font-size:12px;padding:4px 0">No social metadata</div>';
-  }
-
-  document.querySelectorAll('.del').forEach(b => b.onclick = () => { delete tags[b.dataset.k]; renderMeta(); });
+  const gk=Object.keys(general);
+  mg.innerHTML=gk.length?gk.map(k=>`<div class="meta-row"><span class="lbl">${esc(LABELS[k]||k)}</span><input class="vi" data-key="${esc(k)}" value="${esc(tags[k]||'')}"><button class="del" data-k="${esc(k)}">&times;</button></div>`).join(''):'<div style="color:var(--t4);font-size:12px;padding:4px 0">No general metadata</div>';
+  const sk=Object.keys(social);
+  sg.innerHTML=sk.length?sk.map(k=>`<div class="meta-row"><span class="lbl">${esc(LABELS[k]||k)}</span><input class="vi" data-key="${esc(k)}" value="${esc(tags[k]||'')}"><button class="del" data-k="${esc(k)}">&times;</button></div>`).join(''):'<div style="color:var(--t4);font-size:12px;padding:4px 0">No social metadata</div>';
+  document.querySelectorAll('.del').forEach(b=>b.onclick=()=>{delete tags[b.dataset.k];renderMeta();});
 }
 
-$('addBtn').addEventListener('click', () => {
-  const k = $('nk').value.trim(), v = $('nv').value;
-  if (!k) return; tags[k] = v; $('nk').value = ''; $('nv').value = ''; renderMeta();
+$('addBtn').addEventListener('click',()=>{const k=$('nk').value.trim(),v=$('nv').value;if(!k)return;tags[k]=v;$('nk').value='';$('nv').value='';renderMeta();});
+
+$('saveBtn').addEventListener('click',async()=>{
+  if(!fid)return; ms.textContent='Saving...';ms.className='status';
+  const t={};document.querySelectorAll('.vi').forEach(i=>{t[i.dataset.key]=i.value;});
+  for(const[k,v]of Object.entries(tags)){if(!(k in t))t[k]=v;}
+  try{
+    const r=await fetch('/api/metadata/'+fid,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({tags:t})});
+    if(r.ok){ms.textContent='Saved';ms.className='status ok';tags=t;showPlayer();loadLogs();}
+    else{const d=await r.json();ms.textContent=d.detail||'Error';ms.className='status err';loadLogs();}
+  }catch{ms.textContent='Network error';ms.className='status err';}
 });
 
-$('saveBtn').addEventListener('click', async () => {
-  if (!fid) return;
-  ms.textContent = 'Saving...'; ms.className = 'status';
-  const t = {};
-  document.querySelectorAll('.vi').forEach(i => { t[i.dataset.key] = i.value; });
-  // add any keys from tags that aren't in inputs (deleted fields shouldn't be sent)
-  // but we do want to include everything currently in tags
-  for (const [k, v] of Object.entries(tags)) {
-    if (!(k in t)) t[k] = v;
-  }
-  try {
-    const r = await fetch('/api/metadata/' + fid, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ tags: t }),
-    });
-    if (r.ok) {
-      ms.textContent = 'Saved'; ms.className = 'status ok';
-      // update tags from inputs
-      tags = t;
-      showPlayer(); loadLogs();
-    } else {
-      const d = await r.json(); ms.textContent = d.detail || 'Error'; ms.className = 'status err'; loadLogs();
-    }
-  } catch { ms.textContent = 'Network error'; ms.className = 'status err'; }
-});
-
-$('randBtn').addEventListener('click', () => {
-  tags['og:title'] = rnd(SOCIAL_TITLES);
-  tags['og:description'] = rnd(SOCIAL_DESCS);
-  tags['og:type'] = rnd(SOCIAL_TYPES);
-  tags['og:site_name'] = rnd(['MyChannel', 'VideoHub', 'MediaShare', 'ClipVault', 'StreamDrop']);
-  tags['og:url'] = rndUrl();
-  tags['og:video'] = rndUrl();
-  tags['og:video:width'] = rndDim();
-  tags['og:video:height'] = rndDim();
-  tags['og:video:type'] = 'video/mp4';
-  tags['og:image'] = rndUrl();
-  tags['twitter:card'] = rnd(TWITTER_CARDS);
-  tags['twitter:site'] = '@' + rnd(NAMES);
-  tags['twitter:creator'] = '@' + rnd(NAMES);
-  tags['twitter:title'] = rnd(SOCIAL_TITLES);
-  tags['twitter:description'] = rnd(SOCIAL_DESCS);
-  tags['twitter:image'] = rndUrl();
+$('randBtn').addEventListener('click',()=>{
+  tags['og:title']=rnd(SOCIAL_TITLES);tags['og:description']=rnd(SOCIAL_DESCS);tags['og:type']=rnd(SOCIAL_TYPES);
+  tags['og:site_name']=rnd(['MyChannel','VideoHub','MediaShare','ClipVault','StreamDrop']);
+  tags['og:url']=rndUrl();tags['og:video']=rndUrl();tags['og:video:width']=rndDim();tags['og:video:height']=rndDim();
+  tags['og:video:type']='video/mp4';tags['og:image']=rndUrl();
+  tags['twitter:card']=rnd(TWITTER_CARDS);tags['twitter:site']='@'+rnd(NAMES);tags['twitter:creator']='@'+rnd(NAMES);
+  tags['twitter:title']=rnd(SOCIAL_TITLES);tags['twitter:description']=rnd(SOCIAL_DESCS);tags['twitter:image']=rndUrl();
   renderMeta();
 });
 
-// Strip + download
-$('stripBtn').addEventListener('click', () => {
-  if (!fid) return;
-  const a = document.createElement('a'); a.href = '/api/strip-download/' + fid; a.download = '';
-  document.body.appendChild(a); a.click(); document.body.removeChild(a);
-});
+$('stripBtn').addEventListener('click',()=>{if(!fid)return;const a=document.createElement('a');a.href='/api/strip-download/'+fid;a.download='';document.body.appendChild(a);a.click();document.body.removeChild(a);});
+$('dlBtn').addEventListener('click',()=>{if(!fid)return;const a=document.createElement('a');a.href='/api/download/'+fid;a.download='';document.body.appendChild(a);a.click();document.body.removeChild(a);});
+$('rstBtn').addEventListener('click',()=>{fid=null;fi.value='';st.textContent='';st.className='status';pb.classList.remove('on');pf.style.width='0%';br.style.display='none';mc.style.display='none';pc.style.display='none';vp.src='';});
 
-// Download
-$('dlBtn').addEventListener('click', () => {
-  if (!fid) return;
-  const a = document.createElement('a'); a.href = '/api/download/' + fid; a.download = '';
-  document.body.appendChild(a); a.click(); document.body.removeChild(a);
-});
+// --- Downloader ---
+let dlBusy=false;
+$('dlNormal').addEventListener('click',()=>dlStart(false));
+$('dlNoMeta').addEventListener('click',()=>dlStart(true));
 
-// Reset
-$('rstBtn').addEventListener('click', () => {
-  fid = null; fi.value = ''; st.textContent = ''; st.className = 'status';
-  pb.classList.remove('on'); pf.style.width = '0%';
-  br.style.display = 'none'; mc.style.display = 'none'; pc.style.display = 'none'; vp.src = '';
-});
+async function dlStart(stripMeta) {
+  const url=$('urlInput').value.trim();
+  if(!url){$('dlStatus').textContent='Enter URL';$('dlStatus').className='status err';return;}
+  if(dlBusy)return;
+  dlBusy=true;
+  const endpoint=stripMeta?'/api/dl/download-stripped':'/api/dl/download';
+  $('dlSpin').classList.add('on');
+  $('dlStatus').textContent=stripMeta?'Downloading & stripping metadata...':'Downloading...';
+  $('dlStatus').className='status';
+  $('dlNormal').disabled=true; $('dlNoMeta').disabled=true;
 
-// Logs
-async function loadLogs() {
-  try {
-    const r = await fetch('/api/logs?limit=200'); const d = await r.json();
-    if (!d.logs.length) { lo.innerHTML = '<div class="empty">No logs</div>'; lc.textContent = '0'; return; }
-    lc.textContent = d.logs.length;
-    lo.innerHTML = d.logs.map(l => `<div class="le"><span class="t">${l.time}</span><span class="lv ${l.level[0]}">${l.level}</span><span class="m">${esc(l.message)}</span></div>`).reverse().join('');
-  } catch {}
+  try{
+    const r=await fetch(endpoint,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({url})});
+    if(r.ok){
+      const d=await r.json();
+      $('dlStatus').textContent=`Done: ${d.filename} (${fmtSize(d.size)})`;
+      $('dlStatus').className='status ok';
+      loadLogs();
+    } else {
+      const d=await r.json();
+      $('dlStatus').textContent=d.detail||'Error';
+      $('dlStatus').className='status err';
+      loadLogs();
+    }
+  }catch{
+    $('dlStatus').textContent='Network error';
+    $('dlStatus').className='status err';
+  }
+  $('dlSpin').classList.remove('on');
+  $('dlNormal').disabled=false; $('dlNoMeta').disabled=false;
+  dlBusy=false;
 }
-$('rlb').addEventListener('click', loadLogs);
-loadLogs(); setInterval(loadLogs, 5000);
+
+$('urlInput').addEventListener('keydown',e=>{if(e.key==='Enter')dlStart(false);});
+
+// --- Logs ---
+async function loadLogs() {
+  try{
+    const r=await fetch('/api/logs?limit=200');const d=await r.json();
+    if(!d.logs.length){$('lo').innerHTML='<div class="empty">No logs</div>';$('lc').textContent='0';return;}
+    $('lc').textContent=d.logs.length;
+    $('lo').innerHTML=d.logs.map(l=>`<div class="le"><span class="t">${l.time}</span><span class="lv ${l.level[0]}">${l.level}</span><span class="m">${esc(l.message)}</span></div>`).reverse().join('');
+  }catch{}
+}
+$('rlb').addEventListener('click',loadLogs);
+loadLogs(); setInterval(loadLogs,5000);
 </script>
 </body>
 </html>

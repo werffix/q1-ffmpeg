@@ -16,9 +16,11 @@ app = FastAPI(title="FFmpeg Metadata Tool")
 BASE_DIR = Path(__file__).resolve().parent
 UPLOAD_DIR = BASE_DIR / "uploads"
 OUTPUT_DIR = BASE_DIR / "outputs"
+DOWNLOAD_DIR = BASE_DIR / "downloads"
 
 UPLOAD_DIR.mkdir(exist_ok=True)
 OUTPUT_DIR.mkdir(exist_ok=True)
+DOWNLOAD_DIR.mkdir(exist_ok=True)
 
 logs: list[dict] = []
 log_lock = threading.Lock()
@@ -215,6 +217,144 @@ async def download_video(file_id: str):
 
     add_log(f"Download: {download_name}")
     return FileResponse(path=str(output_path), filename=download_name, media_type="application/octet-stream")
+
+
+# --- Downloader ---
+
+class UrlRequest(BaseModel):
+    url: str
+
+
+def _find_downloaded_file(directory: Path, before_files: set) -> Path | None:
+    import time
+    time.sleep(1)
+    for _ in range(10):
+        current = set(directory.iterdir())
+        new_files = current - before_files
+        video_exts = {'.mp4', '.mkv', '.webm', '.avi', '.mov', '.flv', '.m4v', '.ts', '.mpg'}
+        for f in sorted(new_files, key=lambda x: x.stat().st_mtime, reverse=True):
+            if f.suffix.lower() in video_exts and f.stat().st_size > 0:
+                return f
+        time.sleep(0.5)
+    return None
+
+
+@app.post("/api/dl/download")
+async def dl_download(body: UrlRequest):
+    url = body.url.strip()
+    if not url:
+        raise HTTPException(status_code=400, detail="Empty URL")
+
+    dl_id = str(uuid.uuid4())[:8]
+    before_files = set(DOWNLOAD_DIR.iterdir())
+
+    add_log(f"Download requested: {url}")
+
+    try:
+        result = subprocess.run(
+            [
+                "yt-dlp",
+                "--no-warnings",
+                "-o", str(DOWNLOAD_DIR / f"{dl_id}_%(title)s.%(ext)s"),
+                "--no-playlist",
+                url,
+            ],
+            capture_output=True, text=True, timeout=300,
+        )
+        if result.returncode != 0:
+            err = result.stderr[:500]
+            add_log(f"yt-dlp error: {err}", "error")
+            raise HTTPException(status_code=500, detail=f"Download error: {err}")
+
+        video_path = _find_downloaded_file(DOWNLOAD_DIR, before_files)
+        if not video_path:
+            add_log("Downloaded file not found", "error")
+            raise HTTPException(status_code=500, detail="Downloaded file not found")
+
+        file_id = video_path.stem.split('_')[0]
+        add_log(f"Downloaded: {video_path.name} ({format_size(video_path.stat().st_size)})")
+
+        return {
+            "file_id": dl_id,
+            "filename": video_path.name,
+            "size": video_path.stat().st_size,
+        }
+    except subprocess.TimeoutExpired:
+        add_log(f"Download timeout: {url}", "error")
+        raise HTTPException(status_code=500, detail="Download timed out")
+
+
+@app.post("/api/dl/download-stripped")
+async def dl_download_stripped(body: UrlRequest):
+    url = body.url.strip()
+    if not url:
+        raise HTTPException(status_code=400, detail="Empty URL")
+
+    dl_id = str(uuid.uuid4())[:8]
+    before_files = set(DOWNLOAD_DIR.iterdir())
+
+    add_log(f"Download stripped requested: {url}")
+
+    tmp_path = DOWNLOAD_DIR / f"{dl_id}_tmp.mp4"
+    out_path = DOWNLOAD_DIR / f"{dl_id}_stripped.mp4"
+
+    try:
+        result = subprocess.run(
+            [
+                "yt-dlp",
+                "--no-warnings",
+                "-o", str(tmp_path),
+                "--no-playlist",
+                "-f", "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best",
+                "--merge-output-format", "mp4",
+                url,
+            ],
+            capture_output=True, text=True, timeout=300,
+        )
+        if result.returncode != 0:
+            err = result.stderr[:500]
+            add_log(f"yt-dlp error: {err}", "error")
+            raise HTTPException(status_code=500, detail=f"Download error: {err}")
+
+        if not tmp_path.exists():
+            downloaded = _find_downloaded_file(DOWNLOAD_DIR, before_files)
+            if downloaded:
+                tmp_path = downloaded
+            else:
+                add_log("Downloaded file not found", "error")
+                raise HTTPException(status_code=500, detail="Downloaded file not found")
+
+        add_log(f"Stripping metadata from downloaded file")
+        strip_result = subprocess.run(
+            ["ffmpeg", "-y", "-i", str(tmp_path), "-map_metadata", "-1", "-c", "copy", str(out_path)],
+            capture_output=True, text=True, timeout=300,
+        )
+
+        if strip_result.returncode != 0:
+            add_log(f"Strip failed, returning original", "warn")
+            return FileResponse(
+                path=str(tmp_path),
+                filename=tmp_path.name,
+                media_type="application/octet-stream",
+            )
+
+        add_log(f"Stripped: {out_path.name} ({format_size(out_path.stat().st_size)})")
+        return FileResponse(
+            path=str(out_path),
+            filename=out_path.name,
+            media_type="application/octet-stream",
+        )
+    except subprocess.TimeoutExpired:
+        add_log(f"Download+strip timeout: {url}", "error")
+        raise HTTPException(status_code=500, detail="Processing timed out")
+
+
+@app.get("/api/dl/file/{filename}")
+async def dl_serve_file(filename: str):
+    file_path = DOWNLOAD_DIR / filename
+    if not file_path.exists():
+        raise HTTPException(status_code=404, detail="File not found")
+    return FileResponse(path=str(file_path), media_type="application/octet-stream")
 
 
 @app.get("/api/logs")
