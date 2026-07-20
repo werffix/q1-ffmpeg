@@ -1,107 +1,125 @@
 # FFmpeg Metadata Tool
 
-Video metadata editor with web UI. Upload videos, strip/edit metadata via FFmpeg, preview in browser.
+Редактор метаданных видео с веб-интерфейсом. Загрузка, очистка/редактирование метаданных через FFmpeg, встроенный плеер.
 
-## Local run
+## Развертывание на сервере
 
-```bash
-docker compose up --build
-```
+### Шаг 1. Подготовка сервера
 
-Open `http://localhost:8000`.
-
-## Server deployment
-
-### 1. Install Docker
+Установить Docker:
 
 ```bash
 curl -fsSL https://get.docker.com | sh
 sudo usermod -aG docker $USER
 ```
 
-Log out and log back in. Verify:
+Перелогиниться. Проверить:
 
 ```bash
 docker --version
 ```
 
-### 2. Clone project
+### Шаг 2. Клонировать проект
 
 ```bash
-git clone <repo-url> /opt/ffmpeg-metadata
+git clone <url-репозитория> /opt/ffmpeg-metadata
 cd /opt/ffmpeg-metadata
 ```
 
-### 3. Start
+### Шаг 3. Запустить приложение
 
 ```bash
 docker compose up -d --build
 ```
 
-App runs on port `8000` inside the container, mapped to port `8000` on the host.
+Приложение слушает порт `8000`.
 
-### 4. Install Caddy
+### Шаг 4. DNS
+
+В панели управления доменом создать A-запись:
+
+```
+video.yourdomain.com  ->  A  ->  <ip-адрес-сервера>
+```
+
+Подождать пока запишется (обычно 1-5 минут). Проверить:
+
+```bash
+dig video.yourdomain.com +short
+```
+
+### Шаг 5. Установить Caddy
 
 ```bash
 sudo apt install -y caddy
 ```
 
-### 5. Configure Caddy
+### Шаг 6. Настроить Caddy
 
-Edit `/etc/caddy/Caddyfile`:
+Отредактировать файл:
+
+```bash
+sudo nano /etc/caddy/Caddyfile
+```
+
+Заменить всё содержимое на:
 
 ```
-yourdomain.com {
+video.yourdomain.com {
     reverse_proxy localhost:8000
 
     client_max_body_size 2GB
+
+    header {
+        X-Frame-Options DENY
+        X-Content-Type-Options nosniff
+    }
 }
 ```
 
-Replace `yourdomain.com` with your actual domain.
+Заменить `video.yourdomain.com` на свой домен.
 
-### 6. DNS
+Сохранить (Ctrl+O, Enter) и выйти (Ctrl+X).
 
-Point your domain A record to the server IP:
-
-```
-yourdomain.com  ->  A  ->  <server-ip>
-```
-
-### 7. Reload Caddy
+### Шаг 7. Применить и запустить Caddy
 
 ```bash
 sudo systemctl reload caddy
 ```
 
-HTTPS is automatic via Let's Encrypt.
+Готово. Сайт доступен по адресу `https://video.yourdomain.com` на любых устройствах.
 
-## Manage
+Caddy автоматически выдаёт и продлевает SSL-сертификат через Let's Encrypt.
+
+## Управление
 
 ```bash
-# Status
+# Статус
 docker compose ps
 
-# Logs
+# Логи приложения
 docker compose logs -f
 
-# Restart
+# Перезапуск
 docker compose restart
 
-# Stop
+# Остановка
 docker compose down
 
-# Update
+# Обновление
 git pull && docker compose up -d --build
+
+# Логи Caddy
+sudo journalctl -u caddy -f
 ```
 
 ## API
 
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| POST | `/api/upload` | Upload video (multipart) |
-| GET | `/api/metadata/{id}` | Read metadata (ffprobe) |
-| POST | `/api/metadata/{id}` | Write metadata |
-| GET | `/api/stream/{id}` | Stream video |
-| GET | `/api/download/{id}` | Download clean file |
-| GET | `/api/logs` | Get logs |
+| Метод | Эндпоинт | Описание |
+|-------|-----------|----------|
+| POST | `/api/upload` | Загрузка видео |
+| GET | `/api/metadata/{id}` | Чтение метаданных |
+| POST | `/api/metadata/{id}` | Запись метаданных |
+| GET | `/api/stream/{id}` | Потоковая передача видео |
+| GET | `/api/download/{id}` | Скачивание файла |
+| GET | `/api/logs` | Получение логов |
