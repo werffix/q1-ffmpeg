@@ -1,0 +1,9 @@
+services:
+  ffmpeg-cleaner:
+    build: .
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./data/uploads:/app/uploads
+      - ./data/outputs:/app/outputs
+    restart: unless-stopped

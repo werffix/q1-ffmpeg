@@ -1,0 +1,569 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>FFmpeg Metadata Tool</title>
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --bg-primary: #111111;
+  --bg-secondary: #1a1a1a;
+  --bg-tertiary: #242424;
+  --bg-hover: #2a2a2a;
+  --border: #333333;
+  --text-primary: #e0e0e0;
+  --text-secondary: #999999;
+  --text-muted: #666666;
+  --white: #ffffff;
+  --accent: #cccccc;
+}
+
+body {
+  font-family: 'SF Mono', 'Cascadia Code', 'Fira Code', monospace;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+header {
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border);
+  padding: 16px 24px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+header h1 { font-size: 18px; font-weight: 600; color: var(--white); }
+header span { font-size: 12px; color: var(--text-muted); }
+
+.container {
+  max-width: 900px;
+  width: 100%;
+  margin: 0 auto;
+  padding: 24px;
+  flex: 1;
+}
+
+.card {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 24px;
+  margin-bottom: 20px;
+}
+
+.card h2 {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--accent);
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  margin-bottom: 16px;
+}
+
+.drop-zone {
+  border: 2px dashed var(--border);
+  border-radius: 8px;
+  padding: 48px 24px;
+  text-align: center;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.drop-zone:hover, .drop-zone.active {
+  border-color: var(--text-muted);
+  background: var(--bg-tertiary);
+}
+
+.drop-zone p { color: var(--text-secondary); font-size: 14px; }
+.drop-zone .icon { font-size: 48px; color: var(--text-muted); margin-bottom: 12px; display: block; }
+.drop-zone .hint { font-size: 12px; color: var(--text-muted); margin-top: 8px; }
+
+input[type="file"] { display: none; }
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 20px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  font-family: inherit;
+  font-size: 13px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.btn:hover { background: var(--bg-hover); border-color: var(--text-muted); }
+.btn:disabled { opacity: 0.4; cursor: not-allowed; }
+.btn-primary { background: var(--text-primary); color: var(--bg-primary); border-color: var(--text-primary); }
+.btn-primary:hover { background: var(--white); border-color: var(--white); }
+.btn-danger { border-color: #666; color: #aaa; }
+.btn-danger:hover { border-color: #999; background: #333; }
+
+.btn-row { display: flex; gap: 12px; margin-top: 16px; flex-wrap: wrap; }
+
+.progress-bar {
+  width: 100%;
+  height: 4px;
+  background: var(--bg-tertiary);
+  border-radius: 2px;
+  margin-top: 16px;
+  overflow: hidden;
+  display: none;
+}
+
+.progress-bar .fill {
+  height: 100%;
+  background: var(--accent);
+  border-radius: 2px;
+  width: 0%;
+  transition: width 0.3s;
+}
+
+.progress-bar.active { display: block; }
+
+.status { margin-top: 12px; font-size: 13px; color: var(--text-secondary); }
+.status.error { color: #aa6666; }
+.status.success { color: #a0a0a0; }
+
+/* Player */
+.player-wrap {
+  display: none;
+  margin-top: 16px;
+}
+
+.player-wrap video {
+  width: 100%;
+  max-height: 400px;
+  border-radius: 6px;
+  background: #000;
+}
+
+/* Metadata */
+.meta-grid {
+  display: grid;
+  gap: 10px;
+}
+
+.meta-row {
+  display: grid;
+  grid-template-columns: 180px 1fr 36px;
+  gap: 8px;
+  align-items: center;
+}
+
+.meta-row input {
+  font-family: inherit;
+  font-size: 13px;
+  padding: 8px 10px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text-primary);
+  outline: none;
+  transition: border-color 0.2s;
+}
+
+.meta-row input:focus { border-color: var(--text-muted); }
+
+.meta-row input.key-input {
+  background: var(--bg-tertiary);
+  color: var(--accent);
+  cursor: default;
+}
+
+.btn-icon {
+  width: 36px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg-tertiary);
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 16px;
+  transition: all 0.2s;
+}
+
+.btn-icon:hover { border-color: #666; color: var(--text-primary); }
+
+.add-meta-row {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.add-meta-row input {
+  font-family: inherit;
+  font-size: 13px;
+  padding: 8px 10px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text-primary);
+  outline: none;
+}
+
+.add-meta-row input:focus { border-color: var(--text-muted); }
+
+/* Logs */
+.logs-container {
+  max-height: 400px;
+  overflow-y: auto;
+  font-size: 12px;
+  line-height: 1.8;
+}
+
+.logs-container::-webkit-scrollbar { width: 6px; }
+.logs-container::-webkit-scrollbar-track { background: var(--bg-primary); }
+.logs-container::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+.log-entry {
+  display: flex;
+  gap: 12px;
+  padding: 4px 0;
+  border-bottom: 1px solid var(--bg-primary);
+}
+
+.log-entry .time { color: var(--text-muted); min-width: 140px; }
+.log-entry .level { min-width: 50px; text-transform: uppercase; font-weight: 600; }
+.log-entry .level.info { color: var(--text-secondary); }
+.log-entry .level.warn { color: #aaaaaa; }
+.log-entry .level.error { color: #999999; }
+.log-entry .msg { color: var(--text-primary); }
+
+.toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.empty-logs {
+  text-align: center;
+  padding: 32px;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+footer {
+  text-align: center;
+  padding: 16px;
+  color: var(--text-muted);
+  font-size: 11px;
+  border-top: 1px solid var(--border);
+}
+</style>
+</head>
+<body>
+
+<header>
+  <h1>FFmpeg Metadata Tool</h1>
+  <span>edit video metadata</span>
+</header>
+
+<div class="container">
+
+  <!-- Upload -->
+  <div class="card">
+    <h2>Upload</h2>
+    <div class="drop-zone" id="dropZone">
+      <span class="icon">+</span>
+      <p>Drop video file here or click to browse</p>
+      <p class="hint">mp4, avi, mov, mkv, webm, flv, wmv, m4v, ts, mpg</p>
+    </div>
+    <input type="file" id="fileInput" accept="video/*">
+    <div class="progress-bar" id="progressBar"><div class="fill" id="progressFill"></div></div>
+    <div class="status" id="status"></div>
+
+    <div class="btn-row" id="btnRow" style="display:none;">
+      <button class="btn btn-primary" id="downloadBtn">Download</button>
+      <button class="btn" id="resetBtn">Reset</button>
+    </div>
+  </div>
+
+  <!-- Player -->
+  <div class="card player-wrap" id="playerCard">
+    <h2>Player</h2>
+    <video id="videoPlayer" controls></video>
+  </div>
+
+  <!-- Metadata -->
+  <div class="card" id="metaCard" style="display:none;">
+    <h2>Metadata</h2>
+    <div class="meta-grid" id="metaGrid"></div>
+    <div class="add-meta-row">
+      <input type="text" id="newMetaKey" placeholder="key" style="flex:0 0 180px;">
+      <input type="text" id="newMetaValue" placeholder="value" style="flex:1;">
+      <button class="btn" id="addMetaBtn">+</button>
+    </div>
+    <div class="btn-row">
+      <button class="btn btn-primary" id="saveMetaBtn">Save metadata</button>
+    </div>
+    <div class="status" id="metaStatus"></div>
+  </div>
+
+  <!-- Logs -->
+  <div class="card">
+    <h2>Logs</h2>
+    <div class="toolbar">
+      <span id="logCount" style="font-size:12px;color:var(--text-muted);">0 entries</span>
+      <button class="btn" id="refreshLogsBtn">Refresh</button>
+    </div>
+    <div class="logs-container" id="logsContainer">
+      <div class="empty-logs">No logs yet</div>
+    </div>
+  </div>
+</div>
+
+<footer>FFmpeg Metadata Tool &mdash; all processing is local</footer>
+
+<script>
+const dropZone = document.getElementById('dropZone');
+const fileInput = document.getElementById('fileInput');
+const progressBar = document.getElementById('progressBar');
+const progressFill = document.getElementById('progressFill');
+const status = document.getElementById('status');
+const btnRow = document.getElementById('btnRow');
+const downloadBtn = document.getElementById('downloadBtn');
+const resetBtn = document.getElementById('resetBtn');
+const playerCard = document.getElementById('playerCard');
+const videoPlayer = document.getElementById('videoPlayer');
+const metaCard = document.getElementById('metaCard');
+const metaGrid = document.getElementById('metaGrid');
+const metaStatus = document.getElementById('metaStatus');
+const logsContainer = document.getElementById('logsContainer');
+const logCount = document.getElementById('logCount');
+
+let currentFileId = null;
+let metaTags = {};
+
+// Upload
+dropZone.addEventListener('click', () => fileInput.click());
+dropZone.addEventListener('dragover', (e) => { e.preventDefault(); dropZone.classList.add('active'); });
+dropZone.addEventListener('dragleave', () => dropZone.classList.remove('active'));
+dropZone.addEventListener('drop', (e) => {
+  e.preventDefault();
+  dropZone.classList.remove('active');
+  if (e.dataTransfer.files.length) handleFile(e.dataTransfer.files[0]);
+});
+fileInput.addEventListener('change', () => { if (fileInput.files.length) handleFile(fileInput.files[0]); });
+
+function formatSize(bytes) {
+  if (bytes < 1024) return bytes + ' B';
+  if (bytes < 1048576) return (bytes / 1024).toFixed(1) + ' KB';
+  return (bytes / 1048576).toFixed(2) + ' MB';
+}
+
+function escapeHtml(s) {
+  const d = document.createElement('div');
+  d.textContent = s;
+  return d.innerHTML;
+}
+
+async function handleFile(file) {
+  status.textContent = `Uploading: ${file.name}`;
+  status.className = 'status';
+  progressBar.classList.add('active');
+  progressFill.style.width = '0%';
+  btnRow.style.display = 'none';
+  metaCard.style.display = 'none';
+  playerCard.classList.remove('player-wrap');
+  playerCard.style.display = 'none';
+
+  const formData = new FormData();
+  formData.append('file', file);
+
+  const xhr = new XMLHttpRequest();
+  xhr.open('POST', '/api/upload');
+
+  xhr.upload.onprogress = (e) => {
+    if (e.lengthComputable) {
+      progressFill.style.width = Math.round((e.loaded / e.total) * 50) + '%';
+    }
+  };
+
+  status.textContent = `Processing: ${file.name}...`;
+
+  xhr.onload = () => {
+    if (xhr.status === 200) {
+      const data = JSON.parse(xhr.responseText);
+      currentFileId = data.file_id;
+      progressFill.style.width = '100%';
+      status.textContent = 'Done';
+      status.className = 'status success';
+      btnRow.style.display = 'flex';
+      setTimeout(() => progressBar.classList.remove('active'), 500);
+      showPlayer();
+      loadMetadata();
+      loadLogs();
+    } else {
+      let msg = 'Upload failed';
+      try { msg = JSON.parse(xhr.responseText).detail || msg; } catch {}
+      status.textContent = msg;
+      status.className = 'status error';
+      progressBar.classList.remove('active');
+      loadLogs();
+    }
+  };
+
+  xhr.onerror = () => {
+    status.textContent = 'Network error';
+    status.className = 'status error';
+    progressBar.classList.remove('active');
+  };
+
+  xhr.send(formData);
+}
+
+// Player
+function showPlayer() {
+  videoPlayer.src = `/api/stream/${currentFileId}`;
+  playerCard.style.display = 'block';
+}
+
+// Metadata
+async function loadMetadata() {
+  if (!currentFileId) return;
+  try {
+    const resp = await fetch(`/api/metadata/${currentFileId}`);
+    const data = await resp.json();
+    metaTags = data.tags || {};
+    renderMeta();
+    metaCard.style.display = 'block';
+  } catch {
+    metaCard.style.display = 'none';
+  }
+}
+
+function renderMeta() {
+  const keys = Object.keys(metaTags);
+  if (!keys.length) {
+    metaGrid.innerHTML = '<div style="color:var(--text-muted);font-size:13px;padding:8px 0;">No metadata</div>';
+    return;
+  }
+  metaGrid.innerHTML = keys.map(k =>
+    `<div class="meta-row">
+      <input class="key-input" value="${escapeHtml(k)}" readonly>
+      <input class="value-input" data-key="${escapeHtml(k)}" value="${escapeHtml(metaTags[k] || '')}">
+      <button class="btn-icon" onclick="removeMeta('${escapeHtml(k)}')" title="Remove">&times;</button>
+    </div>`
+  ).join('');
+}
+
+function removeMeta(key) {
+  delete metaTags[key];
+  renderMeta();
+}
+
+document.getElementById('addMetaBtn').addEventListener('click', () => {
+  const key = document.getElementById('newMetaKey').value.trim();
+  const value = document.getElementById('newMetaValue').value;
+  if (!key) return;
+  metaTags[key] = value;
+  document.getElementById('newMetaKey').value = '';
+  document.getElementById('newMetaValue').value = '';
+  renderMeta();
+});
+
+document.getElementById('saveMetaBtn').addEventListener('click', async () => {
+  if (!currentFileId) return;
+  metaStatus.textContent = 'Saving...';
+  metaStatus.className = 'status';
+
+  const inputs = metaGrid.querySelectorAll('.value-input');
+  const tags = {};
+  metaGrid.querySelectorAll('.meta-row').forEach(row => {
+    const keyInput = row.querySelector('.key-input');
+    const valInput = row.querySelector('.value-input');
+    if (keyInput && valInput) {
+      tags[keyInput.value] = valInput.value;
+    }
+  });
+
+  try {
+    const resp = await fetch(`/api/metadata/${currentFileId}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ tags }),
+    });
+    if (resp.ok) {
+      metaStatus.textContent = 'Metadata saved';
+      metaStatus.className = 'status success';
+      showPlayer();
+      loadLogs();
+    } else {
+      const data = await resp.json();
+      metaStatus.textContent = data.detail || 'Error';
+      metaStatus.className = 'status error';
+      loadLogs();
+    }
+  } catch {
+    metaStatus.textContent = 'Network error';
+    metaStatus.className = 'status error';
+  }
+});
+
+// Download
+downloadBtn.addEventListener('click', () => {
+  if (currentFileId) {
+    const a = document.createElement('a');
+    a.href = `/api/download/${currentFileId}`;
+    a.download = '';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+  }
+});
+
+// Reset
+resetBtn.addEventListener('click', () => {
+  currentFileId = null;
+  fileInput.value = '';
+  status.textContent = '';
+  status.className = 'status';
+  progressBar.classList.remove('active');
+  progressFill.style.width = '0%';
+  btnRow.style.display = 'none';
+  metaCard.style.display = 'none';
+  playerCard.style.display = 'none';
+  videoPlayer.src = '';
+});
+
+// Logs
+async function loadLogs() {
+  try {
+    const resp = await fetch('/api/logs?limit=200');
+    const data = await resp.json();
+    if (!data.logs.length) {
+      logsContainer.innerHTML = '<div class="empty-logs">No logs yet</div>';
+      logCount.textContent = '0 entries';
+      return;
+    }
+    logCount.textContent = data.logs.length + ' entries';
+    logsContainer.innerHTML = data.logs.map(l =>
+      `<div class="log-entry">
+        <span class="time">${l.time}</span>
+        <span class="level ${l.level}">${l.level}</span>
+        <span class="msg">${escapeHtml(l.message)}</span>
+      </div>`
+    ).reverse().join('');
+  } catch {}
+}
+
+document.getElementById('refreshLogsBtn').addEventListener('click', loadLogs);
+loadLogs();
+setInterval(loadLogs, 5000);
+</script>
+</body>
+</html>
