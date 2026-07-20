@@ -168,11 +168,21 @@ input[type="file"] { display: none; }
       <p style="font-size:12px;color:var(--t3);margin-bottom:14px">YouTube, TikTok, Instagram, Twitter, and 1000+ other sites via yt-dlp</p>
       <input type="text" class="url-input" id="urlInput" placeholder="Paste video URL here...">
       <div class="btn-row">
-        <button class="btn btn-p" id="dlNormal">Download</button>
-        <button class="btn btn-w" id="dlNoMeta">Download without metadata</button>
+        <button class="btn btn-p" id="fetchFmt">Fetch formats</button>
       </div>
       <div class="dl-spinner" id="dlSpin"><div class="bar"><div class="fill"></div></div></div>
       <div class="status" id="dlStatus"></div>
+
+      <div id="fmtPanel" style="display:none;margin-top:16px">
+        <div class="section-label">Video info</div>
+        <div style="font-size:13px;color:var(--t2);margin-bottom:10px" id="vidTitle"></div>
+        <div class="section-label">Choose format</div>
+        <div id="fmtList" class="meta-grid"></div>
+        <div class="btn-row" style="margin-top:14px">
+          <button class="btn btn-p" id="dlFmtBtn">Download selected</button>
+          <button class="btn btn-w" id="dlFmtStripBtn">Download &amp; strip metadata</button>
+        </div>
+      </div>
     </div>
   </div>
 
@@ -308,28 +318,80 @@ $('dlBtn').addEventListener('click',()=>{if(!fid)return;const a=document.createE
 $('rstBtn').addEventListener('click',()=>{fid=null;fi.value='';st.textContent='';st.className='status';pb.classList.remove('on');pf.style.width='0%';br.style.display='none';mc.style.display='none';pc.style.display='none';vp.src='';});
 
 // --- Downloader ---
-let dlBusy=false;
-$('dlNormal').addEventListener('click',()=>dlStart(false));
-$('dlNoMeta').addEventListener('click',()=>dlStart(true));
+let dlBusy=false, selectedFmt=null;
 
-async function dlStart(stripMeta) {
+$('fetchFmt').addEventListener('click', fetchFormats);
+$('urlInput').addEventListener('keydown',e=>{if(e.key==='Enter')fetchFormats();});
+$('dlFmtBtn').addEventListener('click',()=>dlStartFmt(false));
+$('dlFmtStripBtn').addEventListener('click',()=>dlStartFmt(true));
+
+async function fetchFormats() {
   const url=$('urlInput').value.trim();
   if(!url){$('dlStatus').textContent='Enter URL';$('dlStatus').className='status err';return;}
+  if(dlBusy)return;
+  dlBusy=true;
+  $('dlSpin').classList.add('on');
+  $('dlStatus').textContent='Fetching formats...';
+  $('dlStatus').className='status';
+  $('fmtPanel').style.display='none';
+  selectedFmt=null;
+
+  try{
+    const r=await fetch('/api/dl/formats',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({url})});
+    if(r.ok){
+      const d=await r.json();
+      const dur=d.duration?Math.floor(d.duration/60)+'m '+Math.floor(d.duration%60)+'s':'';
+      $('vidTitle').textContent=d.title+(dur?' ('+dur+')':'');
+
+      if(!d.formats.length){
+        $('fmtList').innerHTML='<div style="color:var(--t4);font-size:12px;padding:4px 0">No formats available</div>';
+      } else {
+        $('fmtList').innerHTML=d.formats.map((f,i)=>`<div class="meta-row" style="grid-template-columns:24px 1fr"><label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:12px;color:var(--t1);padding:6px 0"><input type="radio" name="fmt" value="${i}" ${i===0?'checked':''} style="accent-color:var(--t1)">${esc(f.label)}</label></div>`).join('');
+
+        $('fmtList').querySelectorAll('input[name="fmt"]').forEach(r=>{
+          r.addEventListener('change',()=>{selectedFmt=d.formats[parseInt(r.value)].format_id;});
+        });
+        selectedFmt=d.formats[0].format_id;
+      }
+      $('fmtPanel').style.display='block';
+      $('dlStatus').textContent='Select format and download';
+      $('dlStatus').className='status ok';
+      loadLogs();
+    } else {
+      const d=await r.json();
+      $('dlStatus').textContent=d.detail||'Error';
+      $('dlStatus').className='status err';
+      loadLogs();
+    }
+  }catch{
+    $('dlStatus').textContent='Network error';
+    $('dlStatus').className='status err';
+  }
+  $('dlSpin').classList.remove('on');
+  dlBusy=false;
+}
+
+async function dlStartFmt(stripMeta) {
+  const url=$('urlInput').value.trim();
+  if(!url)return;
   if(dlBusy)return;
   dlBusy=true;
   const endpoint=stripMeta?'/api/dl/download-stripped':'/api/dl/download';
   $('dlSpin').classList.add('on');
   $('dlStatus').textContent=stripMeta?'Downloading & stripping metadata...':'Downloading...';
   $('dlStatus').className='status';
-  $('dlNormal').disabled=true; $('dlNoMeta').disabled=true;
 
   try{
-    const r=await fetch(endpoint,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({url})});
+    const body={url};
+    if(selectedFmt) body.format_id=selectedFmt;
+    const r=await fetch(endpoint,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+
     if(stripMeta){
       if(r.ok){
         const blob=await r.blob();
-        const a=document.createElement('a');a.href=URL.createObjectURL(blob);
-        a.download=r.headers.get('content-disposition')?.match(/filename="?(.+?)"?$/)?.[1]||'video.mp4';
+        const cd=r.headers.get('content-disposition')||'';
+        const fn=cd.match(/filename="?([^";\n]+)"?/)?.[1]||'video.mp4';
+        const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=fn;
         document.body.appendChild(a);a.click();document.body.removeChild(a);URL.revokeObjectURL(a.href);
         $('dlStatus').textContent='Done & downloading to your device';
         $('dlStatus').className='status ok';
@@ -357,11 +419,8 @@ async function dlStart(stripMeta) {
     $('dlStatus').className='status err';
   }
   $('dlSpin').classList.remove('on');
-  $('dlNormal').disabled=false; $('dlNoMeta').disabled=false;
   dlBusy=false;
 }
-
-$('urlInput').addEventListener('keydown',e=>{if(e.key==='Enter')dlStart(false);});
 
 // --- Logs ---
 async function loadLogs() {

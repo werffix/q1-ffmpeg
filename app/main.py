@@ -26,6 +26,21 @@ DOWNLOAD_DIR.mkdir(exist_ok=True)
 logs: list[dict] = []
 log_lock = threading.Lock()
 
+YDL_BASE_OPTS = {
+    'no_warnings': True,
+    'no_playlist': True,
+    'quiet': True,
+    'http_headers': {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+        'Accept-Language': 'en-US,en;q=0.9',
+    },
+    'extractor_args': {
+        'tiktok': {
+            'api_hostname': ['api-h2.tiktokv.com'],
+        },
+    },
+}
+
 
 def add_log(message: str, level: str = "info"):
     entry = {
@@ -224,20 +239,112 @@ async def download_video(file_id: str):
 
 class UrlRequest(BaseModel):
     url: str
+    format_id: str | None = None
 
 
 def _find_downloaded_file(directory: Path, before_files: set) -> Path | None:
     import time
     time.sleep(1)
-    for _ in range(10):
+    for _ in range(15):
         current = set(directory.iterdir())
         new_files = current - before_files
-        video_exts = {'.mp4', '.mkv', '.webm', '.avi', '.mov', '.flv', '.m4v', '.ts', '.mpg', '.mp3', '.opus', '.m4a'}
+        media_exts = {'.mp4', '.mkv', '.webm', '.avi', '.mov', '.flv', '.m4v', '.ts', '.mpg', '.mp3', '.opus', '.m4a', '.ogg', '.wav'}
         for f in sorted(new_files, key=lambda x: x.stat().st_mtime, reverse=True):
-            if f.suffix.lower() in video_exts and f.stat().st_size > 0:
+            if f.suffix.lower() in media_exts and f.stat().st_size > 0:
                 return f
         time.sleep(0.5)
     return None
+
+
+@app.post("/api/dl/formats")
+async def dl_list_formats(body: UrlRequest):
+    url = body.url.strip()
+    if not url:
+        raise HTTPException(status_code=400, detail="Empty URL")
+
+    add_log(f"Fetching formats: {url}")
+
+    try:
+        opts = {**YDL_BASE_OPTS, 'skip_download': True}
+        with yt_dlp.YoutubeDL(opts) as ydl:
+            info = ydl.extract_info(url, download=False)
+
+        formats = []
+        seen = set()
+        for f in info.get('formats', []):
+            fid = f.get('format_id', '')
+            height = f.get('height')
+            ext = f.get('ext', '')
+            vcodec = f.get('vcodec', 'none')
+            acodec = f.get('acodec', 'none')
+            tbr = f.get('tbr', 0)
+            fps = f.get('fps')
+            label = f.get('format_note', '')
+
+            has_video = vcodec != 'none'
+            has_audio = acodec != 'none'
+
+            if height:
+                key = f"{height}p_{ext}"
+                if key in seen:
+                    continue
+                seen.add(key)
+                fmt_str = f"{height}p"
+                if fps and fps > 30:
+                    fmt_str += f" {fps}fps"
+                fmt_str += f" ({ext})"
+                if has_video and has_audio:
+                    fmt_str += " [v+a]"
+                elif has_video:
+                    fmt_str += " [v]"
+                elif has_audio:
+                    fmt_str += " [a]"
+                formats.append({
+                    'format_id': fid,
+                    'label': fmt_str,
+                    'height': height,
+                    'ext': ext,
+                    'has_video': has_video,
+                    'has_audio': has_audio,
+                    'tbr': tbr or 0,
+                })
+            elif not has_video and has_audio:
+                key = f"audio_{fid}"
+                if key in seen:
+                    continue
+                seen.add(key)
+                abr = f.get('abr', 0)
+                fmt_str = f"Audio {ext}"
+                if abr:
+                    fmt_str += f" {int(abr)}kbps"
+                formats.append({
+                    'format_id': fid,
+                    'label': fmt_str,
+                    'height': 0,
+                    'ext': ext,
+                    'has_video': False,
+                    'has_audio': True,
+                    'tbr': tbr or 0,
+                })
+
+        formats.sort(key=lambda x: (-x['height'], -x['tbr']))
+
+        title = info.get('title', 'Unknown')
+        duration = info.get('duration', 0)
+        add_log(f"Found {len(formats)} formats for: {title}")
+        return {
+            'title': title,
+            'duration': duration,
+            'formats': formats,
+        }
+    except yt_dlp.utils.DownloadError as e:
+        err = str(e)[:500]
+        add_log(f"yt-dlp error: {err}", "error")
+        raise HTTPException(status_code=500, detail=f"Error: {err}")
+    except Exception as e:
+        err = str(e)[:500]
+        add_log(f"Error: {err}", "error")
+        raise HTTPException(status_code=500, detail=f"Error: {err}")
 
 
 @app.post("/api/dl/download")
@@ -254,11 +361,13 @@ async def dl_download(body: UrlRequest):
 
     try:
         ydl_opts = {
+            **YDL_BASE_OPTS,
             'outtmpl': out_template,
-            'no_warnings': True,
-            'no_playlist': True,
-            'quiet': True,
         }
+        if body.format_id:
+            ydl_opts['format'] = body.format_id
+            ydl_opts['merge_output_format'] = 'mp4'
+
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             ydl.download([url])
 
@@ -299,13 +408,16 @@ async def dl_download_stripped(body: UrlRequest):
 
     try:
         ydl_opts = {
+            **YDL_BASE_OPTS,
             'outtmpl': out_template,
-            'no_warnings': True,
-            'no_playlist': True,
-            'quiet': True,
-            'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
-            'merge_output_format': 'mp4',
         }
+        if body.format_id:
+            ydl_opts['format'] = body.format_id
+            ydl_opts['merge_output_format'] = 'mp4'
+        else:
+            ydl_opts['format'] = 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best'
+            ydl_opts['merge_output_format'] = 'mp4'
+
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             ydl.download([url])
 
