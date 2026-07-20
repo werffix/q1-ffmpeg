@@ -124,4 +124,5 @@ sudo journalctl -u caddy -f
 | POST | `/api/metadata/{id}` | Запись метаданных |
 | GET | `/api/stream/{id}` | Потоковая передача видео |
 | GET | `/api/download/{id}` | Скачивание файла |
+| GET | `/api/strip-download/{id}` | Очистка метаданных + скачивание |
 | GET | `/api/logs` | Получение логов |
