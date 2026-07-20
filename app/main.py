@@ -4,6 +4,7 @@ import json
 import shutil
 import subprocess
 import threading
+import yt_dlp
 from pathlib import Path
 from datetime import datetime
 
@@ -231,7 +232,7 @@ def _find_downloaded_file(directory: Path, before_files: set) -> Path | None:
     for _ in range(10):
         current = set(directory.iterdir())
         new_files = current - before_files
-        video_exts = {'.mp4', '.mkv', '.webm', '.avi', '.mov', '.flv', '.m4v', '.ts', '.mpg'}
+        video_exts = {'.mp4', '.mkv', '.webm', '.avi', '.mov', '.flv', '.m4v', '.ts', '.mpg', '.mp3', '.opus', '.m4a'}
         for f in sorted(new_files, key=lambda x: x.stat().st_mtime, reverse=True):
             if f.suffix.lower() in video_exts and f.stat().st_size > 0:
                 return f
@@ -247,41 +248,41 @@ async def dl_download(body: UrlRequest):
 
     dl_id = str(uuid.uuid4())[:8]
     before_files = set(DOWNLOAD_DIR.iterdir())
+    out_template = str(DOWNLOAD_DIR / f"{dl_id}_%(title)s.%(ext)s")
 
     add_log(f"Download requested: {url}")
 
     try:
-        result = subprocess.run(
-            [
-                "yt-dlp",
-                "--no-warnings",
-                "-o", str(DOWNLOAD_DIR / f"{dl_id}_%(title)s.%(ext)s"),
-                "--no-playlist",
-                url,
-            ],
-            capture_output=True, text=True, timeout=300,
-        )
-        if result.returncode != 0:
-            err = result.stderr[:500]
-            add_log(f"yt-dlp error: {err}", "error")
-            raise HTTPException(status_code=500, detail=f"Download error: {err}")
+        ydl_opts = {
+            'outtmpl': out_template,
+            'no_warnings': True,
+            'no_playlist': True,
+            'quiet': True,
+        }
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            ydl.download([url])
 
         video_path = _find_downloaded_file(DOWNLOAD_DIR, before_files)
         if not video_path:
             add_log("Downloaded file not found", "error")
             raise HTTPException(status_code=500, detail="Downloaded file not found")
 
-        file_id = video_path.stem.split('_')[0]
         add_log(f"Downloaded: {video_path.name} ({format_size(video_path.stat().st_size)})")
-
         return {
             "file_id": dl_id,
             "filename": video_path.name,
             "size": video_path.stat().st_size,
         }
-    except subprocess.TimeoutExpired:
-        add_log(f"Download timeout: {url}", "error")
-        raise HTTPException(status_code=500, detail="Download timed out")
+    except yt_dlp.utils.DownloadError as e:
+        err = str(e)[:500]
+        add_log(f"yt-dlp error: {err}", "error")
+        raise HTTPException(status_code=500, detail=f"Download error: {err}")
+    except HTTPException:
+        raise
+    except Exception as e:
+        err = str(e)[:500]
+        add_log(f"Download error: {err}", "error")
+        raise HTTPException(status_code=500, detail=f"Download error: {err}")
 
 
 @app.post("/api/dl/download-stripped")
@@ -292,49 +293,40 @@ async def dl_download_stripped(body: UrlRequest):
 
     dl_id = str(uuid.uuid4())[:8]
     before_files = set(DOWNLOAD_DIR.iterdir())
+    out_template = str(DOWNLOAD_DIR / f"{dl_id}_%(title)s.%(ext)s")
 
     add_log(f"Download stripped requested: {url}")
 
-    tmp_path = DOWNLOAD_DIR / f"{dl_id}_tmp.mp4"
-    out_path = DOWNLOAD_DIR / f"{dl_id}_stripped.mp4"
-
     try:
-        result = subprocess.run(
-            [
-                "yt-dlp",
-                "--no-warnings",
-                "-o", str(tmp_path),
-                "--no-playlist",
-                "-f", "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best",
-                "--merge-output-format", "mp4",
-                url,
-            ],
-            capture_output=True, text=True, timeout=300,
-        )
-        if result.returncode != 0:
-            err = result.stderr[:500]
-            add_log(f"yt-dlp error: {err}", "error")
-            raise HTTPException(status_code=500, detail=f"Download error: {err}")
+        ydl_opts = {
+            'outtmpl': out_template,
+            'no_warnings': True,
+            'no_playlist': True,
+            'quiet': True,
+            'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
+            'merge_output_format': 'mp4',
+        }
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            ydl.download([url])
 
-        if not tmp_path.exists():
-            downloaded = _find_downloaded_file(DOWNLOAD_DIR, before_files)
-            if downloaded:
-                tmp_path = downloaded
-            else:
-                add_log("Downloaded file not found", "error")
-                raise HTTPException(status_code=500, detail="Downloaded file not found")
+        downloaded = _find_downloaded_file(DOWNLOAD_DIR, before_files)
+        if not downloaded:
+            add_log("Downloaded file not found", "error")
+            raise HTTPException(status_code=500, detail="Downloaded file not found")
 
-        add_log(f"Stripping metadata from downloaded file")
+        out_path = DOWNLOAD_DIR / f"{dl_id}_stripped{downloaded.suffix}"
+
+        add_log(f"Stripping metadata from {downloaded.name}")
         strip_result = subprocess.run(
-            ["ffmpeg", "-y", "-i", str(tmp_path), "-map_metadata", "-1", "-c", "copy", str(out_path)],
+            ["ffmpeg", "-y", "-i", str(downloaded), "-map_metadata", "-1", "-c", "copy", str(out_path)],
             capture_output=True, text=True, timeout=300,
         )
 
         if strip_result.returncode != 0:
-            add_log(f"Strip failed, returning original", "warn")
+            add_log("Strip failed, returning original", "warn")
             return FileResponse(
-                path=str(tmp_path),
-                filename=tmp_path.name,
+                path=str(downloaded),
+                filename=downloaded.name,
                 media_type="application/octet-stream",
             )
 
@@ -344,9 +336,16 @@ async def dl_download_stripped(body: UrlRequest):
             filename=out_path.name,
             media_type="application/octet-stream",
         )
-    except subprocess.TimeoutExpired:
-        add_log(f"Download+strip timeout: {url}", "error")
-        raise HTTPException(status_code=500, detail="Processing timed out")
+    except yt_dlp.utils.DownloadError as e:
+        err = str(e)[:500]
+        add_log(f"yt-dlp error: {err}", "error")
+        raise HTTPException(status_code=500, detail=f"Download error: {err}")
+    except HTTPException:
+        raise
+    except Exception as e:
+        err = str(e)[:500]
+        add_log(f"Download error: {err}", "error")
+        raise HTTPException(status_code=500, detail=f"Download error: {err}")
 
 
 @app.get("/api/dl/file/{filename}")
